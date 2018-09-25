@@ -75,6 +75,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     "subversion",
     "python-numpy",
     "python-dev",
+    "python-lxml",
     "postgis",
     "postgresql-server-dev-9.3",
     "postgresql-9.3-postgis-2.2",
@@ -136,6 +137,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     "libjson-c-dev",
     "libtiff5-dev",
     "libopenjp2-7-dev",
+    "libopenjpip7",
+    "libopenjp3d7",
     "clang-3.9",
     "cmake3",
     "git",
@@ -161,11 +164,15 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     "libpcre3-dev",
     "libspatialite-dev",
     "librasterlite2-dev",
-    "libkea-dev"
+    "libkea-dev",
+    "libzstd-dev"
   ];
 
   if Vagrant.has_plugin?("vagrant-cachier")
     config.cache.scope = :box
+    config.cache.enable :generic, {
+        "wget" => { cache_dir: "/var/cache/wget" },
+      }
   end
 
   if Dir.glob("#{File.dirname(__FILE__)}/.vagrant/machines/default/*/id").empty?
@@ -185,9 +192,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 	  pkg_cmd << "apt-get --no-install-recommends install -q -y " + packageList.join(" ") << " ; "
 	  config.vm.provision :shell, :inline => pkg_cmd
     scripts = [
-      "sfcgal.sh",
-      "swig-1.3.40.sh",
-      "openjpeg.sh",
       "gdal.sh",
       "postgis.sh"
     ];

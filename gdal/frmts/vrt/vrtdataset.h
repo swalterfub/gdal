@@ -38,6 +38,7 @@
 #include "gdal_priv.h"
 #include "gdal_rat.h"
 #include "gdal_vrt.h"
+#include "gdal_rat.h"
 
 #include <map>
 #include <memory>
@@ -989,6 +990,7 @@ typedef enum
 class CPL_DLL VRTComplexSource : public VRTSimpleSource
 {
     CPL_DISALLOW_COPY_ASSIGN(VRTComplexSource)
+    bool           AreValuesUnchanged() const;
 
 protected:
     VRTComplexSourceScaling m_eScalingType;

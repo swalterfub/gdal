@@ -600,6 +600,7 @@ def misc_12():
             if ds is None and gdal.GetLastErrorMsg() == '':
                 gdaltest.post_reason('failure')
                 print('CreateCopy() into non existing dir fails without error message for driver %s' % drv.ShortName)
+                gdal.Unlink('/vsimem/misc_12_src.tif')
                 return 'fail'
             ds = None
 
@@ -687,4 +688,4 @@ if __name__ == '__main__':
 
     gdaltest.run_tests(gdaltest_list)
 
-    gdaltest.summarize()
+    sys.exit(gdaltest.summarize())

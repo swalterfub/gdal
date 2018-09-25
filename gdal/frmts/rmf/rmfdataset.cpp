@@ -55,7 +55,7 @@ constexpr double RMF_DEFAULT_RESOLUTION = 100.0;
 /* -------------------------------------------------------------------- */
 /*  Note: Due to the fact that in the early versions of RMF             */
 /*  format the field of the iEPSGCode was marked as a 'reserved',       */
-/*  in the header on its place in many cases garbage values were writen.*/
+/*  in the header on its place in many cases garbage values were written.*/
 /*  Most of them can be weeded out by the minimum EPSG code value.      */
 /*                                                                      */
 /*  see: Surveying and Positioning Guidance Note Number 7, part 1       */
@@ -2545,9 +2545,15 @@ int RMFDataset::SetupCompression(GDALDataType eType, const char* pszFilename)
         Compress = &LZWCompress;
         SetMetadataItem("COMPRESSION", "LZW", "IMAGE_STRUCTURE");
     }
-    else if( sHeader.iCompression == RMF_COMPRESSION_JPEG
-             && eType == GDT_Byte && nBands == RMF_JPEG_BAND_COUNT)
+    else if(sHeader.iCompression == RMF_COMPRESSION_JPEG)
     {
+        if(eType != GDT_Byte || nBands != RMF_JPEG_BAND_COUNT ||
+           sHeader.nBitDepth != 24)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                    "RMF support only 24 bpp JPEG compressed files.");
+            return CE_Failure;
+        }
 #ifdef HAVE_LIBJPEG
         CPLString   oBuf;
         oBuf.Printf("%d", (int)sHeader.iJpegQuality);
@@ -2591,15 +2597,15 @@ void RMFDataset::WriteTileJobFunc(void* pData)
 
     if(poDS->Compress)
     {
-        // RMF doesn't store compresed tiles with size greater than 80% of
+        // RMF doesn't store compressed tiles with size greater than 80% of
         // uncompressed size
-        GUInt32 nMaxCompresedTileSize =
+        GUInt32 nMaxCompressedTileSize =
                     static_cast<GUInt32>((psJob->nUncompressedBytes*8)/10);
         size_t nCompressedBytes =
                 poDS->Compress(psJob->pabyUncompressedData,
                                static_cast<GUInt32>(psJob->nUncompressedBytes),
                                psJob->pabyCompressedData,
-                               nMaxCompresedTileSize,
+                               nMaxCompressedTileSize,
                                psJob->nXSize, psJob->nYSize, poDS);
         if(nCompressedBytes == 0)
         {
@@ -2869,7 +2875,7 @@ CPLErr RMFDataset::ReadTile(int nBlockXOff, int nBlockYOff,
     }
     vsi_l_offset nTileOffset = GetFileOffset(paiTiles[2 * nTile]);
     GUInt32 nTileBytes = paiTiles[2 * nTile + 1];
-    // RMF doesn't store compresed tiles with size greater than 80% of
+    // RMF doesn't store compressed tiles with size greater than 80% of
     // uncompressed size. But just in case, select twice as many.
     GUInt32 nMaxTileBytes = 2 * sHeader.nTileWidth * sHeader.nTileHeight *
                             sHeader.nBitDepth / 8;

@@ -2195,6 +2195,71 @@ def ogr_libkml_read_kml_with_space_content_in_coordinates():
     return 'success'
 
 ###############################################################################
+# Test reading a layer referring several schema (github #826)
+
+
+def ogr_libkml_read_several_schema():
+
+    if not ogrtest.have_read_libkml:
+        return 'skip'
+
+    ds = ogr.Open('data/several_schema_in_layer.kml')
+    lyr = ds.GetLayer(0)
+    feat = lyr.GetNextFeature()
+    if feat['fieldA'] != 'fieldAValue' or feat['common'] != 'commonAValue':
+        gdaltest.post_reason('fail')
+        feat.DumpReadable()
+        return 'fail'
+
+    feat = lyr.GetNextFeature()
+    if feat['fieldB'] != 'fieldBValue' or feat['common'] != 'commonBValue':
+        gdaltest.post_reason('fail')
+        feat.DumpReadable()
+        return 'fail'
+
+    ds = ogr.Open('data/several_schema_outside_layer.kml')
+    lyr = ds.GetLayer(0)
+    feat = lyr.GetNextFeature()
+    if feat['fieldA'] != 'fieldAValue' or feat['common'] != 'commonAValue':
+        gdaltest.post_reason('fail')
+        feat.DumpReadable()
+        return 'fail'
+
+    feat = lyr.GetNextFeature()
+    if feat['fieldB'] != 'fieldBValue' or feat['common'] != 'commonBValue':
+        gdaltest.post_reason('fail')
+        feat.DumpReadable()
+        return 'fail'
+
+    return 'success'
+
+###############################################################################
+
+
+def ogr_libkml_update_existing_kml():
+
+    if not ogrtest.have_read_libkml:
+        return 'skip'
+
+    filename = '/vsimem/ogr_libkml_update_existing_kml.kml'
+    gdal.FileFromMemBuffer(filename, open('data/several_schema_in_layer.kml', 'rb').read())
+    ds = ogr.Open(filename, update=1)
+    lyr = ds.GetLayer(0)
+    fc_before = lyr.GetFeatureCount()
+    f = ogr.Feature(lyr.GetLayerDefn())
+    lyr.CreateFeature(f)
+    ds = None
+
+    ds = ogr.Open(filename)
+    lyr = ds.GetLayer(0)
+    fc_after = lyr.GetFeatureCount()
+    if fc_after != fc_before + 1:
+        return 'fail'
+
+    gdal.Unlink(filename)
+    return 'success'
+
+###############################################################################
 #  Cleanup
 
 
@@ -2301,6 +2366,8 @@ gdaltest_list = [
     ogr_libkml_read_placemark_in_root_and_subfolder,
     ogr_libkml_read_tab_separated_coord_triplet,
     ogr_libkml_read_kml_with_space_content_in_coordinates,
+    ogr_libkml_read_several_schema,
+    ogr_libkml_update_existing_kml,
     ogr_libkml_cleanup]
 
 if __name__ == '__main__':
@@ -2309,4 +2376,4 @@ if __name__ == '__main__':
 
     gdaltest.run_tests(gdaltest_list)
 
-    gdaltest.summarize()
+    sys.exit(gdaltest.summarize())
