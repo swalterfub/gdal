@@ -433,6 +433,7 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_KRO();
     GDALRegister_ROIPAC();
     GDALRegister_RRASTER();
+    GDALRegister_BYN();
 #endif
 
 #ifdef FRMT_arg
@@ -570,6 +571,10 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_ENVI();
     GDALRegister_EHdr();
     GDALRegister_ISCE();
+#endif
+
+#ifdef FRMT_sigdem
+    GDALRegister_SIGDEM();
 #endif
 
 #ifdef FRMT_wcs

@@ -45,6 +45,8 @@ import gdaltest
 
 import test_cli_utilities
 
+from uffd import uffd_compare
+
 ###############################################################################
 # Netcdf Functions
 ###############################################################################
@@ -95,6 +97,8 @@ def netcdf_setup():
     print('NOTICE: using netcdf version ' + gdaltest.netcdf_drv_version +
           '  has_nc2: ' + str(gdaltest.netcdf_drv_has_nc2) + '  has_nc4: ' +
           str(gdaltest.netcdf_drv_has_nc4))
+
+    gdaltest.count_opened_files = len(gdaltest.get_opened_files())
 
     return 'success'
 
@@ -3280,6 +3284,44 @@ def netcdf_82():
 
     return 'success'
 
+
+###############################################################################
+def netcdf_uffd():
+
+    if gdaltest.netcdf_drv is None:
+        return 'skip'
+
+    if uffd_compare('orog_CRCM1.nc') is None:
+        return 'skip'
+
+    netcdf_files = [
+        'orog_CRCM1.nc',
+        'orog_CRCM2.nc',
+        'cf-bug636.nc',
+        'bug636.nc',
+        'rotated_pole.nc',
+        'reduce-cgcms.nc'
+    ]
+    for netcdf_file in netcdf_files:
+        if uffd_compare(netcdf_file) is not True:
+            return 'fail'
+
+    return 'success'
+
+
+def netcdf_postcheck():
+
+    if gdaltest.netcdf_drv is None:
+        return 'skip'
+
+    diff = len(gdaltest.get_opened_files()) - gdaltest.count_opened_files
+    if diff != 0:
+        gdaltest.post_reason('Leak of file handles: %d leaked' % diff)
+        return 'fail'
+
+    return 'success'
+
+
 ###############################################################################
 
 ###############################################################################
@@ -3373,7 +3415,8 @@ gdaltest_list = [
     netcdf_79,
     netcdf_80,
     netcdf_81,
-    netcdf_82
+    netcdf_82,
+    netcdf_uffd,
 ]
 
 ###############################################################################
@@ -3410,6 +3453,7 @@ for item in init_list:
     gdaltest_list.append((ut.testCreate, item[0]))
     gdaltest_list.append((ut.testSetNoDataValue, item[0]))
 
+gdaltest_list.append(netcdf_postcheck)
 
 ###############################################################################
 #  other tests
@@ -3423,4 +3467,4 @@ if __name__ == '__main__':
     # make sure we cleanup
     gdaltest.clean_tmp()
 
-    gdaltest.summarize()
+    sys.exit(gdaltest.summarize())

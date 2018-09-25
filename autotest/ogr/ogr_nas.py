@@ -342,13 +342,10 @@ gdaltest_list = [
     ogr_nas_4,
     ogr_nas_5]
 
-# NAS tests disabled for now
-gdaltest_list = []
-
 if __name__ == '__main__':
 
     gdaltest.setup_run('ogr_nas')
 
     gdaltest.run_tests(gdaltest_list)
 
-    gdaltest.summarize()
+    sys.exit(gdaltest.summarize())

@@ -5622,6 +5622,12 @@ SWIGINTERN int GDALRasterAttributeTableShadow_ChangesAreWrittenToFile(GDALRaster
 SWIGINTERN void GDALRasterAttributeTableShadow_DumpReadable(GDALRasterAttributeTableShadow *self){
         GDALRATDumpReadable( self, NULL );
     }
+SWIGINTERN void GDALRasterAttributeTableShadow_SetTableType(GDALRasterAttributeTableShadow *self,GDALRATTableType eTableType){
+        GDALRATSetTableType( self, eTableType );
+    }
+SWIGINTERN GDALRATTableType GDALRasterAttributeTableShadow_GetTableType(GDALRasterAttributeTableShadow *self){
+        return GDALRATGetTableType( self );
+    }
 
 #include "gdalgrid.h"
 
@@ -5895,6 +5901,26 @@ int ContourGenerate( GDALRasterBandShadow *srcBand,
                                  elevField,
                                  callback,
                                  callback_data);
+
+    return eErr;
+}
+
+
+int ContourGenerateEx( GDALRasterBandShadow *srcBand,
+                       OGRLayerShadow* dstLayer,
+                       char** options = NULL,
+                       GDALProgressFunc callback = NULL,
+                       void* callback_data = NULL )
+{
+    CPLErr eErr;
+
+    CPLErrorReset();
+
+    eErr =  GDALContourGenerateEx( srcBand,
+                                   dstLayer,
+                                   options,
+                                   callback,
+                                   callback_data);
 
     return eErr;
 }
@@ -6303,6 +6329,70 @@ GDALDriverShadow *IdentifyDriverEx( const char* utf8_path,
 
 #include "gdal_utils.h"
 
+
+
+#include <vector>
+
+class ErrorStruct
+{
+  public:
+    CPLErr type;
+    CPLErrorNum no;
+    char* msg;
+
+    ErrorStruct() = delete;
+    ErrorStruct(CPLErr eErrIn, CPLErrorNum noIn, const char* msgIn) :
+        type(eErrIn), no(noIn), msg(msgIn ? CPLStrdup(msgIn) : nullptr) {}
+    ErrorStruct(const ErrorStruct& other):
+        type(other.type), no(other.no),
+        msg(other.msg ? CPLStrdup(other.msg) : nullptr) {}
+    ~ErrorStruct() { CPLFree(msg); }
+};
+
+static void CPL_STDCALL StackingErrorHandler( CPLErr eErr, CPLErrorNum no,
+                                           const char* msg )
+{
+    std::vector<ErrorStruct>* paoErrors =
+        static_cast<std::vector<ErrorStruct> *>(
+            CPLGetErrorHandlerUserData());
+    paoErrors->emplace_back(eErr, no, msg);
+}
+
+static void PushStackingErrorHandler(std::vector<ErrorStruct>* paoErrors)
+{
+    CPLPushErrorHandlerEx(StackingErrorHandler, paoErrors);
+}
+
+static void PopStackingErrorHandler(std::vector<ErrorStruct>* paoErrors, bool bSuccess)
+{
+    CPLPopErrorHandler();
+
+    // If the operation was successful, do not emit regular CPLError()
+    // that would be caught by the PythonBindingErrorHandler and turned into
+    // Python exceptions. Just emit them with the previous error handler
+    if( bSuccess )
+    {
+        for( size_t iError = 0; iError < paoErrors->size(); ++iError )
+        {
+            pfnPreviousHandler( (*paoErrors)[iError].type,
+                    (*paoErrors)[iError].no,
+                    (*paoErrors)[iError].msg );
+        }
+
+        CPLErrorReset();
+    }
+    else
+    {
+        for( size_t iError = 0; iError < paoErrors->size(); ++iError )
+        {
+            CPLError( (*paoErrors)[iError].type,
+                    (*paoErrors)[iError].no,
+                    "%s",
+                    (*paoErrors)[iError].msg );
+        }
+    }
+}
+
 SWIGINTERN GDALInfoOptions *new_GDALInfoOptions(char **options){
         return GDALInfoOptionsNew(options, NULL);
     }
@@ -6333,9 +6423,22 @@ GDALDatasetShadow* wrapper_GDALTranslate( const char* dest,
         }
         GDALTranslateOptionsSetProgress(translateOptions, callback, callback_data);
     }
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
     GDALDatasetH hDSRet = GDALTranslate(dest, dataset, translateOptions, &usageError);
     if( bFreeOptions )
         GDALTranslateOptionsFree(translateOptions);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, hDSRet != NULL);
+    }
+#endif
     return hDSRet;
 }
 
@@ -6345,6 +6448,7 @@ SWIGINTERN GDALWarpAppOptions *new_GDALWarpAppOptions(char **options){
 SWIGINTERN void delete_GDALWarpAppOptions(GDALWarpAppOptions *self){
         GDALWarpAppOptionsFree( self );
     }
+
 
 int wrapper_GDALWarpDestDS( GDALDatasetShadow* dstDS,
                             int object_list_count, GDALDatasetShadow** poObjects,
@@ -6363,9 +6467,22 @@ int wrapper_GDALWarpDestDS( GDALDatasetShadow* dstDS,
         }
         GDALWarpAppOptionsSetProgress(warpAppOptions, callback, callback_data);
     }
-    int bRet = (GDALWarp(NULL, dstDS, object_list_count, poObjects, warpAppOptions, &usageError) != NULL);
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
+    bool bRet = (GDALWarp(NULL, dstDS, object_list_count, poObjects, warpAppOptions, &usageError) != NULL);
     if( bFreeOptions )
         GDALWarpAppOptionsFree(warpAppOptions);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, bRet);
+    }
+#endif
     return bRet;
 }
 
@@ -6387,9 +6504,22 @@ GDALDatasetShadow* wrapper_GDALWarpDestName( const char* dest,
         }
         GDALWarpAppOptionsSetProgress(warpAppOptions, callback, callback_data);
     }
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
     GDALDatasetH hDSRet = GDALWarp(dest, NULL, object_list_count, poObjects, warpAppOptions, &usageError);
     if( bFreeOptions )
         GDALWarpAppOptionsFree(warpAppOptions);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, hDSRet != NULL);
+    }
+#endif
     return hDSRet;
 }
 
@@ -6417,9 +6547,22 @@ int wrapper_GDALVectorTranslateDestDS( GDALDatasetShadow* dstDS,
         }
         GDALVectorTranslateOptionsSetProgress(options, callback, callback_data);
     }
-    int bRet = (GDALVectorTranslate(NULL, dstDS, 1, &srcDS, options, &usageError) != NULL);
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
+    bool bRet = (GDALVectorTranslate(NULL, dstDS, 1, &srcDS, options, &usageError) != NULL);
     if( bFreeOptions )
         GDALVectorTranslateOptionsFree(options);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, bRet);
+    }
+#endif
     return bRet;
 }
 
@@ -6441,9 +6584,22 @@ GDALDatasetShadow* wrapper_GDALVectorTranslateDestName( const char* dest,
         }
         GDALVectorTranslateOptionsSetProgress(options, callback, callback_data);
     }
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
     GDALDatasetH hDSRet = GDALVectorTranslate(dest, NULL, 1, &srcDS, options, &usageError);
     if( bFreeOptions )
         GDALVectorTranslateOptionsFree(options);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, hDSRet != NULL);
+    }
+#endif
     return hDSRet;
 }
 
@@ -6473,9 +6629,22 @@ GDALDatasetShadow* wrapper_GDALDEMProcessing( const char* dest,
         }
         GDALDEMProcessingOptionsSetProgress(options, callback, callback_data);
     }
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
     GDALDatasetH hDSRet = GDALDEMProcessing(dest, dataset, pszProcessing, pszColorFilename, options, &usageError);
     if( bFreeOptions )
         GDALDEMProcessingOptionsFree(options);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, hDSRet != NULL);
+    }
+#endif
     return hDSRet;
 }
 
@@ -6503,9 +6672,22 @@ int wrapper_GDALNearblackDestDS( GDALDatasetShadow* dstDS,
         }
         GDALNearblackOptionsSetProgress(options, callback, callback_data);
     }
-    int bRet = (GDALNearblack(NULL, dstDS, srcDS, options, &usageError) != NULL);
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
+    bool bRet = (GDALNearblack(NULL, dstDS, srcDS, options, &usageError) != NULL);
     if( bFreeOptions )
         GDALNearblackOptionsFree(options);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, bRet);
+    }
+#endif
     return bRet;
 }
 
@@ -6527,9 +6709,22 @@ GDALDatasetShadow* wrapper_GDALNearblackDestName( const char* dest,
         }
         GDALNearblackOptionsSetProgress(options, callback, callback_data);
     }
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
     GDALDatasetH hDSRet = GDALNearblack(dest, NULL, srcDS, options, &usageError);
     if( bFreeOptions )
         GDALNearblackOptionsFree(options);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, hDSRet != NULL);
+    }
+#endif
     return hDSRet;
 }
 
@@ -6557,9 +6752,22 @@ GDALDatasetShadow* wrapper_GDALGrid( const char* dest,
         }
         GDALGridOptionsSetProgress(options, callback, callback_data);
     }
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
     GDALDatasetH hDSRet = GDALGrid(dest, dataset, options, &usageError);
     if( bFreeOptions )
         GDALGridOptionsFree(options);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, hDSRet != NULL);
+    }
+#endif
     return hDSRet;
 }
 
@@ -6587,9 +6795,22 @@ int wrapper_GDALRasterizeDestDS( GDALDatasetShadow* dstDS,
         }
         GDALRasterizeOptionsSetProgress(options, callback, callback_data);
     }
-    int bRet = (GDALRasterize(NULL, dstDS, srcDS, options, &usageError) != NULL);
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
+    bool bRet = (GDALRasterize(NULL, dstDS, srcDS, options, &usageError) != NULL);
     if( bFreeOptions )
         GDALRasterizeOptionsFree(options);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, bRet);
+    }
+#endif
     return bRet;
 }
 
@@ -6611,9 +6832,22 @@ GDALDatasetShadow* wrapper_GDALRasterizeDestName( const char* dest,
         }
         GDALRasterizeOptionsSetProgress(options, callback, callback_data);
     }
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
     GDALDatasetH hDSRet = GDALRasterize(dest, NULL, srcDS, options, &usageError);
     if( bFreeOptions )
         GDALRasterizeOptionsFree(options);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, hDSRet != NULL);
+    }
+#endif
     return hDSRet;
 }
 
@@ -6641,9 +6875,22 @@ GDALDatasetShadow* wrapper_GDALBuildVRT_objects( const char* dest,
         }
         GDALBuildVRTOptionsSetProgress(options, callback, callback_data);
     }
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
     GDALDatasetH hDSRet = GDALBuildVRT(dest, object_list_count, poObjects, NULL, options, &usageError);
     if( bFreeOptions )
         GDALBuildVRTOptionsFree(options);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, hDSRet != NULL);
+    }
+#endif
     return hDSRet;
 }
 
@@ -6665,9 +6912,22 @@ GDALDatasetShadow* wrapper_GDALBuildVRT_names( const char* dest,
         }
         GDALBuildVRTOptionsSetProgress(options, callback, callback_data);
     }
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
     GDALDatasetH hDSRet = GDALBuildVRT(dest, CSLCount(source_filenames), NULL, source_filenames, options, &usageError);
     if( bFreeOptions )
         GDALBuildVRTOptionsFree(options);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, hDSRet != NULL);
+    }
+#endif
     return hDSRet;
 }
 
@@ -9717,6 +9977,51 @@ SWIGINTERN PyObject *_wrap_VSIFEofL(PyObject *SWIGUNUSEDPARM(self), PyObject *ar
     {
       SWIG_PYTHON_THREAD_BEGIN_ALLOW;
       result = (int)VSIFEofL(arg1);
+      SWIG_PYTHON_THREAD_END_ALLOW;
+    }
+#ifndef SED_HACKS
+    if ( bUseExceptions ) {
+      CPLErr eclass = CPLGetLastErrorType();
+      if ( eclass == CE_Failure || eclass == CE_Fatal ) {
+        SWIG_exception( SWIG_RuntimeError, CPLGetLastErrorMsg() );
+      }
+    }
+#endif
+  }
+  resultobj = SWIG_From_int(static_cast< int >(result));
+  if ( ReturnSame(bLocalUseExceptionsCode) ) { CPLErr eclass = CPLGetLastErrorType(); if ( eclass == CE_Failure || eclass == CE_Fatal ) { Py_XDECREF(resultobj); SWIG_Error( SWIG_RuntimeError, CPLGetLastErrorMsg() ); return NULL; } }
+  return resultobj;
+fail:
+  return NULL;
+}
+
+
+SWIGINTERN PyObject *_wrap_VSIFFlushL(PyObject *SWIGUNUSEDPARM(self), PyObject *args) {
+  PyObject *resultobj = 0; int bLocalUseExceptionsCode = bUseExceptions;
+  VSILFILE *arg1 = (VSILFILE *) 0 ;
+  void *argp1 = 0 ;
+  int res1 = 0 ;
+  PyObject * obj0 = 0 ;
+  int result;
+  
+  if (!PyArg_ParseTuple(args,(char *)"O:VSIFFlushL",&obj0)) SWIG_fail;
+  res1 = SWIG_ConvertPtr(obj0, &argp1,SWIGTYPE_p_VSILFILE, 0 |  0 );
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "VSIFFlushL" "', argument " "1"" of type '" "VSILFILE *""'"); 
+  }
+  arg1 = reinterpret_cast< VSILFILE * >(argp1);
+  {
+    if (!arg1) {
+      SWIG_exception(SWIG_ValueError,"Received a NULL pointer.");
+    }
+  }
+  {
+    if ( bUseExceptions ) {
+      ClearErrorState();
+    }
+    {
+      SWIG_PYTHON_THREAD_BEGIN_ALLOW;
+      result = (int)VSIFFlushL(arg1);
       SWIG_PYTHON_THREAD_END_ALLOW;
     }
 #ifndef SED_HACKS
@@ -24599,6 +24904,94 @@ fail:
 }
 
 
+SWIGINTERN PyObject *_wrap_RasterAttributeTable_SetTableType(PyObject *SWIGUNUSEDPARM(self), PyObject *args) {
+  PyObject *resultobj = 0; int bLocalUseExceptionsCode = bUseExceptions;
+  GDALRasterAttributeTableShadow *arg1 = (GDALRasterAttributeTableShadow *) 0 ;
+  GDALRATTableType arg2 ;
+  void *argp1 = 0 ;
+  int res1 = 0 ;
+  int val2 ;
+  int ecode2 = 0 ;
+  PyObject * obj0 = 0 ;
+  PyObject * obj1 = 0 ;
+  
+  if (!PyArg_ParseTuple(args,(char *)"OO:RasterAttributeTable_SetTableType",&obj0,&obj1)) SWIG_fail;
+  res1 = SWIG_ConvertPtr(obj0, &argp1,SWIGTYPE_p_GDALRasterAttributeTableShadow, 0 |  0 );
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "RasterAttributeTable_SetTableType" "', argument " "1"" of type '" "GDALRasterAttributeTableShadow *""'"); 
+  }
+  arg1 = reinterpret_cast< GDALRasterAttributeTableShadow * >(argp1);
+  ecode2 = SWIG_AsVal_int(obj1, &val2);
+  if (!SWIG_IsOK(ecode2)) {
+    SWIG_exception_fail(SWIG_ArgError(ecode2), "in method '" "RasterAttributeTable_SetTableType" "', argument " "2"" of type '" "GDALRATTableType""'");
+  } 
+  arg2 = static_cast< GDALRATTableType >(val2);
+  {
+    if ( bUseExceptions ) {
+      ClearErrorState();
+    }
+    {
+      SWIG_PYTHON_THREAD_BEGIN_ALLOW;
+      GDALRasterAttributeTableShadow_SetTableType(arg1,arg2);
+      SWIG_PYTHON_THREAD_END_ALLOW;
+    }
+#ifndef SED_HACKS
+    if ( bUseExceptions ) {
+      CPLErr eclass = CPLGetLastErrorType();
+      if ( eclass == CE_Failure || eclass == CE_Fatal ) {
+        SWIG_exception( SWIG_RuntimeError, CPLGetLastErrorMsg() );
+      }
+    }
+#endif
+  }
+  resultobj = SWIG_Py_Void();
+  if ( ReturnSame(bLocalUseExceptionsCode) ) { CPLErr eclass = CPLGetLastErrorType(); if ( eclass == CE_Failure || eclass == CE_Fatal ) { Py_XDECREF(resultobj); SWIG_Error( SWIG_RuntimeError, CPLGetLastErrorMsg() ); return NULL; } }
+  return resultobj;
+fail:
+  return NULL;
+}
+
+
+SWIGINTERN PyObject *_wrap_RasterAttributeTable_GetTableType(PyObject *SWIGUNUSEDPARM(self), PyObject *args) {
+  PyObject *resultobj = 0; int bLocalUseExceptionsCode = bUseExceptions;
+  GDALRasterAttributeTableShadow *arg1 = (GDALRasterAttributeTableShadow *) 0 ;
+  void *argp1 = 0 ;
+  int res1 = 0 ;
+  PyObject * obj0 = 0 ;
+  GDALRATTableType result;
+  
+  if (!PyArg_ParseTuple(args,(char *)"O:RasterAttributeTable_GetTableType",&obj0)) SWIG_fail;
+  res1 = SWIG_ConvertPtr(obj0, &argp1,SWIGTYPE_p_GDALRasterAttributeTableShadow, 0 |  0 );
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "RasterAttributeTable_GetTableType" "', argument " "1"" of type '" "GDALRasterAttributeTableShadow *""'"); 
+  }
+  arg1 = reinterpret_cast< GDALRasterAttributeTableShadow * >(argp1);
+  {
+    if ( bUseExceptions ) {
+      ClearErrorState();
+    }
+    {
+      SWIG_PYTHON_THREAD_BEGIN_ALLOW;
+      result = (GDALRATTableType)GDALRasterAttributeTableShadow_GetTableType(arg1);
+      SWIG_PYTHON_THREAD_END_ALLOW;
+    }
+#ifndef SED_HACKS
+    if ( bUseExceptions ) {
+      CPLErr eclass = CPLGetLastErrorType();
+      if ( eclass == CE_Failure || eclass == CE_Fatal ) {
+        SWIG_exception( SWIG_RuntimeError, CPLGetLastErrorMsg() );
+      }
+    }
+#endif
+  }
+  resultobj = SWIG_From_int(static_cast< int >(result));
+  if ( ReturnSame(bLocalUseExceptionsCode) ) { CPLErr eclass = CPLGetLastErrorType(); if ( eclass == CE_Failure || eclass == CE_Fatal ) { Py_XDECREF(resultobj); SWIG_Error( SWIG_RuntimeError, CPLGetLastErrorMsg() ); return NULL; } }
+  return resultobj;
+fail:
+  return NULL;
+}
+
+
 SWIGINTERN PyObject *RasterAttributeTable_swigregister(PyObject *SWIGUNUSEDPARM(self), PyObject *args) {
   PyObject *obj;
   if (!PyArg_ParseTuple(args,(char*)"O:swigregister", &obj)) return NULL;
@@ -27148,6 +27541,201 @@ fail:
     if (arg5) {
       free((void*) arg5);
     }
+  }
+  {
+    /* %typemap(freearg) ( void* callback_data=NULL)  */
+    
+    CPLFree(psProgressInfo);
+    
+  }
+  return NULL;
+}
+
+
+SWIGINTERN PyObject *_wrap_ContourGenerateEx(PyObject *SWIGUNUSEDPARM(self), PyObject *args, PyObject *kwargs) {
+  PyObject *resultobj = 0; int bLocalUseExceptionsCode = bUseExceptions;
+  GDALRasterBandShadow *arg1 = (GDALRasterBandShadow *) 0 ;
+  OGRLayerShadow *arg2 = (OGRLayerShadow *) 0 ;
+  char **arg3 = (char **) NULL ;
+  GDALProgressFunc arg4 = (GDALProgressFunc) NULL ;
+  void *arg5 = (void *) NULL ;
+  void *argp1 = 0 ;
+  int res1 = 0 ;
+  void *argp2 = 0 ;
+  int res2 = 0 ;
+  PyObject * obj0 = 0 ;
+  PyObject * obj1 = 0 ;
+  PyObject * obj2 = 0 ;
+  PyObject * obj3 = 0 ;
+  PyObject * obj4 = 0 ;
+  char *  kwnames[] = {
+    (char *) "srcBand",(char *) "dstLayer",(char *) "options",(char *) "callback",(char *) "callback_data", NULL 
+  };
+  int result;
+  
+  /* %typemap(arginit) ( const char* callback_data=NULL)  */
+  PyProgressData *psProgressInfo;
+  psProgressInfo = (PyProgressData *) CPLCalloc(1,sizeof(PyProgressData));
+  psProgressInfo->nLastReported = -1;
+  psProgressInfo->psPyCallback = NULL;
+  psProgressInfo->psPyCallbackData = NULL;
+  arg5 = psProgressInfo;
+  if (!PyArg_ParseTupleAndKeywords(args,kwargs,(char *)"OO|OOO:ContourGenerateEx",kwnames,&obj0,&obj1,&obj2,&obj3,&obj4)) SWIG_fail;
+  res1 = SWIG_ConvertPtr(obj0, &argp1,SWIGTYPE_p_GDALRasterBandShadow, 0 |  0 );
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "ContourGenerateEx" "', argument " "1"" of type '" "GDALRasterBandShadow *""'"); 
+  }
+  arg1 = reinterpret_cast< GDALRasterBandShadow * >(argp1);
+  res2 = SWIG_ConvertPtr(obj1, &argp2,SWIGTYPE_p_OGRLayerShadow, 0 |  0 );
+  if (!SWIG_IsOK(res2)) {
+    SWIG_exception_fail(SWIG_ArgError(res2), "in method '" "ContourGenerateEx" "', argument " "2"" of type '" "OGRLayerShadow *""'"); 
+  }
+  arg2 = reinterpret_cast< OGRLayerShadow * >(argp2);
+  if (obj2) {
+    {
+      /* %typemap(in) char **options */
+      /* Check if is a list (and reject strings, that are seen as sequence of characters)  */
+      if ( ! PySequence_Check(obj2) || PyUnicode_Check(obj2)
+  #if PY_VERSION_HEX < 0x03000000
+        || PyString_Check(obj2)
+  #endif
+        ) {
+        PyErr_SetString(PyExc_TypeError,"not a sequence");
+        SWIG_fail;
+      }
+      
+      Py_ssize_t size = PySequence_Size(obj2);
+      if( size != (int)size ) {
+        PyErr_SetString(PyExc_TypeError, "too big sequence");
+        SWIG_fail;
+      }
+      for (int i = 0; i < (int)size; i++) {
+        PyObject* pyObj = PySequence_GetItem(obj2,i);
+        if (PyUnicode_Check(pyObj))
+        {
+          char *pszStr;
+          Py_ssize_t nLen;
+          PyObject* pyUTF8Str = PyUnicode_AsUTF8String(pyObj);
+          if( !pyUTF8Str )
+          {
+            Py_DECREF(pyObj);
+            PyErr_SetString(PyExc_TypeError,"invalid Unicode sequence");
+            SWIG_fail;
+          }
+#if PY_VERSION_HEX >= 0x03000000
+          PyBytes_AsStringAndSize(pyUTF8Str, &pszStr, &nLen);
+#else
+          PyString_AsStringAndSize(pyUTF8Str, &pszStr, &nLen);
+#endif
+          arg3 = CSLAddString( arg3, pszStr );
+          Py_XDECREF(pyUTF8Str);
+        }
+#if PY_VERSION_HEX >= 0x03000000
+        else if (PyBytes_Check(pyObj))
+        arg3 = CSLAddString( arg3, PyBytes_AsString(pyObj) );
+#else
+        else if (PyString_Check(pyObj))
+        arg3 = CSLAddString( arg3, PyString_AsString(pyObj) );
+#endif
+        else
+        {
+          Py_DECREF(pyObj);
+          PyErr_SetString(PyExc_TypeError,"sequence must contain strings");
+          SWIG_fail;
+        }
+        Py_DECREF(pyObj);
+      }
+    }
+  }
+  if (obj3) {
+    {
+      /* %typemap(in) (GDALProgressFunc callback = NULL) */
+      /* callback_func typemap */
+      
+      /* In some cases 0 is passed instead of None. */
+      /* See https://github.com/OSGeo/gdal/pull/219 */
+      if ( PyLong_Check(obj3) || PyInt_Check(obj3) )
+      {
+        if( PyLong_AsLong(obj3) == 0 )
+        {
+          obj3 = Py_None;
+        }
+      }
+      
+      if (obj3 && obj3 != Py_None ) {
+        void* cbfunction = NULL;
+        CPL_IGNORE_RET_VAL(SWIG_ConvertPtr( obj3,
+            (void**)&cbfunction,
+            SWIGTYPE_p_f_double_p_q_const__char_p_void__int,
+            SWIG_POINTER_EXCEPTION | 0 ));
+        
+        if ( cbfunction == GDALTermProgress ) {
+          arg4 = GDALTermProgress;
+        } else {
+          if (!PyCallable_Check(obj3)) {
+            PyErr_SetString( PyExc_RuntimeError,
+              "Object given is not a Python function" );
+            SWIG_fail;
+          }
+          psProgressInfo->psPyCallback = obj3;
+          arg4 = PyProgressProxy;
+        }
+        
+      }
+      
+    }
+  }
+  if (obj4) {
+    {
+      /* %typemap(in) ( void* callback_data=NULL)  */
+      psProgressInfo->psPyCallbackData = obj4 ;
+    }
+  }
+  {
+    if (!arg1) {
+      SWIG_exception(SWIG_ValueError,"Received a NULL pointer.");
+    }
+  }
+  {
+    if (!arg2) {
+      SWIG_exception(SWIG_ValueError,"Received a NULL pointer.");
+    }
+  }
+  {
+    if ( bUseExceptions ) {
+      ClearErrorState();
+    }
+    {
+      SWIG_PYTHON_THREAD_BEGIN_ALLOW;
+      result = (int)ContourGenerateEx(arg1,arg2,arg3,arg4,arg5);
+      SWIG_PYTHON_THREAD_END_ALLOW;
+    }
+#ifndef SED_HACKS
+    if ( bUseExceptions ) {
+      CPLErr eclass = CPLGetLastErrorType();
+      if ( eclass == CE_Failure || eclass == CE_Fatal ) {
+        SWIG_exception( SWIG_RuntimeError, CPLGetLastErrorMsg() );
+      }
+    }
+#endif
+  }
+  resultobj = SWIG_From_int(static_cast< int >(result));
+  {
+    /* %typemap(freearg) char **options */
+    CSLDestroy( arg3 );
+  }
+  {
+    /* %typemap(freearg) ( void* callback_data=NULL)  */
+    
+    CPLFree(psProgressInfo);
+    
+  }
+  if ( ReturnSame(bLocalUseExceptionsCode) ) { CPLErr eclass = CPLGetLastErrorType(); if ( eclass == CE_Failure || eclass == CE_Fatal ) { Py_XDECREF(resultobj); SWIG_Error( SWIG_RuntimeError, CPLGetLastErrorMsg() ); return NULL; } }
+  return resultobj;
+fail:
+  {
+    /* %typemap(freearg) char **options */
+    CSLDestroy( arg3 );
   }
   {
     /* %typemap(freearg) ( void* callback_data=NULL)  */
@@ -33784,6 +34372,7 @@ static PyMethodDef SwigMethods[] = {
 	 { (char *)"VSIFOpenL", _wrap_VSIFOpenL, METH_VARARGS, (char *)"VSIFOpenL(char const * utf8_path, char const * pszMode) -> VSILFILE"},
 	 { (char *)"VSIFOpenExL", _wrap_VSIFOpenExL, METH_VARARGS, (char *)"VSIFOpenExL(char const * utf8_path, char const * pszMode, int bSetError) -> VSILFILE"},
 	 { (char *)"VSIFEofL", _wrap_VSIFEofL, METH_VARARGS, (char *)"VSIFEofL(VSILFILE fp) -> int"},
+	 { (char *)"VSIFFlushL", _wrap_VSIFFlushL, METH_VARARGS, (char *)"VSIFFlushL(VSILFILE fp) -> int"},
 	 { (char *)"VSIFCloseL", _wrap_VSIFCloseL, METH_VARARGS, (char *)"VSIFCloseL(VSILFILE fp) -> VSI_RETVAL"},
 	 { (char *)"VSIFSeekL", _wrap_VSIFSeekL, METH_VARARGS, (char *)"VSIFSeekL(VSILFILE fp, GIntBig offset, int whence) -> int"},
 	 { (char *)"VSIFTellL", _wrap_VSIFTellL, METH_VARARGS, (char *)"VSIFTellL(VSILFILE fp) -> GIntBig"},
@@ -34005,6 +34594,8 @@ static PyMethodDef SwigMethods[] = {
 	 { (char *)"RasterAttributeTable_GetRowOfValue", _wrap_RasterAttributeTable_GetRowOfValue, METH_VARARGS, (char *)"RasterAttributeTable_GetRowOfValue(RasterAttributeTable self, double dfValue) -> int"},
 	 { (char *)"RasterAttributeTable_ChangesAreWrittenToFile", _wrap_RasterAttributeTable_ChangesAreWrittenToFile, METH_VARARGS, (char *)"RasterAttributeTable_ChangesAreWrittenToFile(RasterAttributeTable self) -> int"},
 	 { (char *)"RasterAttributeTable_DumpReadable", _wrap_RasterAttributeTable_DumpReadable, METH_VARARGS, (char *)"RasterAttributeTable_DumpReadable(RasterAttributeTable self)"},
+	 { (char *)"RasterAttributeTable_SetTableType", _wrap_RasterAttributeTable_SetTableType, METH_VARARGS, (char *)"RasterAttributeTable_SetTableType(RasterAttributeTable self, GDALRATTableType eTableType)"},
+	 { (char *)"RasterAttributeTable_GetTableType", _wrap_RasterAttributeTable_GetTableType, METH_VARARGS, (char *)"RasterAttributeTable_GetTableType(RasterAttributeTable self) -> GDALRATTableType"},
 	 { (char *)"RasterAttributeTable_swigregister", RasterAttributeTable_swigregister, METH_VARARGS, NULL},
 	 { (char *)"TermProgress_nocb", (PyCFunction) _wrap_TermProgress_nocb, METH_VARARGS | METH_KEYWORDS, (char *)"TermProgress_nocb(double dfProgress, char const * pszMessage=None, void * pData=None) -> int"},
 	 { (char *)"TermProgress_swigconstant", TermProgress_swigconstant, METH_VARARGS, NULL},
@@ -34020,6 +34611,7 @@ static PyMethodDef SwigMethods[] = {
 	 { (char *)"RegenerateOverviews", (PyCFunction) _wrap_RegenerateOverviews, METH_VARARGS | METH_KEYWORDS, (char *)"RegenerateOverviews(Band srcBand, int overviewBandCount, char const * resampling, GDALProgressFunc callback=0, void * callback_data=None) -> int"},
 	 { (char *)"RegenerateOverview", (PyCFunction) _wrap_RegenerateOverview, METH_VARARGS | METH_KEYWORDS, (char *)"RegenerateOverview(Band srcBand, Band overviewBand, char const * resampling, GDALProgressFunc callback=0, void * callback_data=None) -> int"},
 	 { (char *)"ContourGenerate", (PyCFunction) _wrap_ContourGenerate, METH_VARARGS | METH_KEYWORDS, (char *)"ContourGenerate(Band srcBand, double contourInterval, double contourBase, int fixedLevelCount, int useNoData, double noDataValue, Layer dstLayer, int idField, int elevField, GDALProgressFunc callback=0, void * callback_data=None) -> int"},
+	 { (char *)"ContourGenerateEx", (PyCFunction) _wrap_ContourGenerateEx, METH_VARARGS | METH_KEYWORDS, (char *)"ContourGenerateEx(Band srcBand, Layer dstLayer, char ** options=None, GDALProgressFunc callback=0, void * callback_data=None) -> int"},
 	 { (char *)"AutoCreateWarpedVRT", _wrap_AutoCreateWarpedVRT, METH_VARARGS, (char *)"AutoCreateWarpedVRT(Dataset src_ds, char const * src_wkt=None, char const * dst_wkt=None, GDALResampleAlg eResampleAlg, double maxerror=0.0) -> Dataset"},
 	 { (char *)"CreatePansharpenedVRT", _wrap_CreatePansharpenedVRT, METH_VARARGS, (char *)"CreatePansharpenedVRT(char const * pszXML, Band panchroBand, int nInputSpectralBands) -> Dataset"},
 	 { (char *)"delete_GDALTransformerInfoShadow", _wrap_delete_GDALTransformerInfoShadow, METH_VARARGS, (char *)"delete_GDALTransformerInfoShadow(GDALTransformerInfoShadow self)"},
@@ -34157,7 +34749,7 @@ static swig_type_info _swigt__p_VSILFILE = {"_p_VSILFILE", "VSILFILE *", 0, 0, (
 static swig_type_info _swigt__p_char = {"_p_char", "char *|retStringAndCPLFree *", 0, 0, (void*)0, 0};
 static swig_type_info _swigt__p_double = {"_p_double", "double *", 0, 0, (void*)0, 0};
 static swig_type_info _swigt__p_f_double_p_q_const__char_p_void__int = {"_p_f_double_p_q_const__char_p_void__int", "int (*)(double,char const *,void *)", 0, 0, (void*)0, 0};
-static swig_type_info _swigt__p_int = {"_p_int", "OGRFieldSubType *|GDALRATFieldType *|OGRFieldType *|RETURN_NONE *|int *|GDALAccess *|OGRwkbByteOrder *|CPLErr *|GDALRWFlag *|OGRJustification *|GDALRATFieldUsage *|GDALTileOrganization *|OGRAxisOrientation *|GDALPaletteInterp *|GDALColorInterp *|GDALResampleAlg *|GDALRIOResampleAlg *|OGRErr *|OGRwkbGeometryType *|GDALDataType *|GDALAsyncStatusType *", 0, 0, (void*)0, 0};
+static swig_type_info _swigt__p_int = {"_p_int", "OGRFieldSubType *|GDALRATFieldType *|OGRFieldType *|RETURN_NONE *|int *|GDALAccess *|OGRwkbByteOrder *|CPLErr *|GDALRWFlag *|OGRJustification *|GDALRATFieldUsage *|GDALTileOrganization *|OGRAxisOrientation *|GDALPaletteInterp *|GDALColorInterp *|GDALResampleAlg *|GDALRIOResampleAlg *|OGRErr *|OGRwkbGeometryType *|GDALDataType *|GDALAsyncStatusType *|GDALRATTableType *", 0, 0, (void*)0, 0};
 static swig_type_info _swigt__p_p_GByte = {"_p_p_GByte", "GByte **", 0, 0, (void*)0, 0};
 static swig_type_info _swigt__p_p_GDALDatasetShadow = {"_p_p_GDALDatasetShadow", "GDALDatasetShadow **", 0, 0, (void*)0, 0};
 static swig_type_info _swigt__p_p_GDALRasterBandShadow = {"_p_p_GDALRasterBandShadow", "GDALRasterBandShadow **", 0, 0, (void*)0, 0};

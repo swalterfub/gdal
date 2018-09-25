@@ -996,14 +996,26 @@ Error""")
     if lyr is None:
         gdaltest.post_reason('fail')
         return 'fail'
-    f = ogr.Feature(lyr.GetLayerDefn())
-    f.SetField('strfield', 'copytest')
-    f.SetGeometry(ogr.CreateGeometryFromWkt('POINT(100 100)'))
-    with gdaltest.tempfile("""/vsimem/carto/copyfrom?q=COPY%20"table1"%20("strfield","my_geom","cartodb_id")%20FROM%20STDIN%20WITH%20(FORMAT%20text,%20ENCODING%20UTF8)&api_key=foo&POSTFIELDS=copytest\t\t\t0101000020E610000000000000000059400000000000005940\t11\n\.""","""{}"""):
-        if lyr.CreateFeature(f) != 0:
-            gdaltest.post_reason('fail')
-            return 'fail'
-        ds = None # force flush
+
+    with gdaltest.tempfile("""/vsimem/carto/copyfrom?q=COPY%20"table1"%20("strfield","my_geom","cartodb_id")%20FROM%20STDIN%20WITH%20(FORMAT%20text,%20ENCODING%20UTF8)&api_key=foo&POSTFIELDS=copytest\t0101000020E610000000000000000059400000000000005940\t11\n\\.\n""","""{}"""):
+
+        with gdaltest.tempfile("""/vsimem/carto/copyfrom?q=COPY%20"table1"%20("intfield","my_geom")%20FROM%20STDIN%20WITH%20(FORMAT%20text,%20ENCODING%20UTF8)&api_key=foo&POSTFIELDS=12\t0101000020E610000000000000000059400000000000005940\n\\.\n""","""{}"""):
+
+            f = ogr.Feature(lyr.GetLayerDefn())
+            f.SetField('strfield', 'copytest')
+            f.SetGeometry(ogr.CreateGeometryFromWkt('POINT(100 100)'))
+            if lyr.CreateFeature(f) != 0:
+                gdaltest.post_reason('fail')
+                return 'fail'
+
+            f = ogr.Feature(lyr.GetLayerDefn())
+            f.SetField('intfield', 12)
+            f.SetGeometry(ogr.CreateGeometryFromWkt('POINT(100 100)'))
+            if lyr.CreateFeature(f) != 0:
+                gdaltest.post_reason('fail')
+                return 'fail'
+
+            ds = None # force flush
 
     ds = ogr.Open('CARTO:foo', update=1)
 
@@ -1056,6 +1068,9 @@ def ogr_carto_vsimem_cleanup():
 
 def ogr_carto_test_ogrsf():
     if ogrtest.carto_drv is None or gdal.GetConfigOption('SKIP_SLOW') is not None:
+        return 'skip'
+
+    if gdaltest.skip_on_travis():
         return 'skip'
 
     ogrtest.carto_test_server = 'https://gdalautotest2.carto.com'
@@ -1306,4 +1321,4 @@ if __name__ == '__main__':
     else:
         gdaltest.run_tests(gdaltest_rw_list)
 
-    gdaltest.summarize()
+    sys.exit(gdaltest.summarize())

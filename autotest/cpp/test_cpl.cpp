@@ -1139,29 +1139,7 @@ namespace tut
     template<>
     void object::test<24>()
     {
-        /* Check that our possibly #define'd snprintf() nul */
-        /* terminates */
-        char szBuffer[10] = "123456789";
-        snprintf(szBuffer, 0, "%s", "xy");
-        ensure( memcmp(szBuffer, "123", 3) == 0 );
-        snprintf(szBuffer, 2, "%s", "xy");
-        ensure( memcmp(szBuffer, "x" "\0" "3", 3) == 0 );
-        strcpy(szBuffer, "123456789");
-        snprintf(szBuffer, 1, "%s", "xy");
-        ensure( memcmp(szBuffer, "\0" "23", 3) == 0 );
-        strcpy(szBuffer, "123456789");
-        snprintf(szBuffer, 3, "%s", "xy");
-        ensure( memcmp(szBuffer, "xy" "\0" "4", 4) == 0 );
-#ifdef HAVE_CPL_SAFER_SNPRINTF
-        // Disabled by default, because crashes on gcc48_stdcpp11 target
-        // In function ‘int snprintf(char*, size_t, const char*, ...)’,
-        // inlined from ‘void tut::test_object<Data>::test() [with int n = 24; Data = tut::test_cpl_data]’ at test_cpl.cpp:1141:48:
-        // /usr/include/x86_64-linux-gnu/bits/stdio2.h:66:44: warning: call to int __builtin___snprintf_chk(char*, long unsigned int, int, long unsigned int, const char*, ...) will always overflow destination buffer [enabled by default]
-
-        strcpy(szBuffer, "123456789");
-        snprintf(szBuffer, INT_MAX, "%s", "xy");
-        ensure( memcmp(szBuffer, "xy" "\0" "4", 4) == 0 );
-#endif
+        // No longer used
     }
 
 
@@ -1989,14 +1967,22 @@ namespace tut
 
             if( CPLHTTPEnabled() )
             {
+                CPLSetConfigOption("CPL_CURL_ENABLE_VSIMEM", "YES");
+                VSILFILE* fpTmp = VSIFOpenL("/vsimem/test.json", "wb");
+                const char* pszContent = "{ \"foo\": \"bar\" }";
+                VSIFWriteL(pszContent, 1, strlen(pszContent), fpTmp);
+                VSIFCloseL(fpTmp);
                 ensure( oDocument.LoadUrl(
-                    "http://demo.nextgis.com/api/component/pyramid/pkg_version",
+                    "/vsimem/test.json",
                     const_cast<char**>(options) ) );
+                CPLSetConfigOption("CPL_CURL_ENABLE_VSIMEM", nullptr);
+                VSIUnlink("/vsimem/test.json");
+
                 CPLJSONObject oJsonRoot = oDocument.GetRoot();
                 ensure( oJsonRoot.IsValid() );
 
-                CPLString soVersion = oJsonRoot.GetString("nextgisweb", "0");
-                ensure_not( EQUAL(soVersion, "0") );
+                CPLString value = oJsonRoot.GetString("foo", "");
+                ensure_not( EQUAL(value, "bar") );
             }
         }
         {

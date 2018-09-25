@@ -54,6 +54,10 @@ def vsifile_generic(filename):
         gdaltest.post_reason('failure')
         return 'fail'
 
+    if gdal.VSIFFlushL(fp) != 0:
+        gdaltest.post_reason('failure')
+        return 'fail'
+
     if gdal.VSIFTruncateL(fp, 20) != 0:
         gdaltest.post_reason('failure')
         return 'fail'
@@ -907,4 +911,4 @@ if __name__ == '__main__':
 
     gdaltest.run_tests(gdaltest_list)
 
-    gdaltest.summarize()
+    sys.exit(gdaltest.summarize())

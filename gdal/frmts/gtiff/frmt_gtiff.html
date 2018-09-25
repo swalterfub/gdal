@@ -147,10 +147,10 @@ or GeoTIFF profile are used, those non standard metadata items are stored into a
 RasterPixelIsPoint for GDALGeoTIFF or GeoTIFF profiles.</p>
 
 <p>Starting with GDAL 1.9.0, XMP metadata can be extracted from the file, and will be
-stored as XML raw content in the xml:XMP metadata domain.</p>
+reported as XML raw content in the xml:XMP metadata domain.</p>
 
 <p>Starting with GDAL 1.10, EXIF metadata can be extracted from the file, and will be
-stored the EXIF metadata domain.</p>
+reported in the EXIF metadata domain.</p>
 
 <h2>Color Profile Metadata</h2>
 
@@ -312,7 +312,7 @@ LZW, DEFLATE and ZSTD compressions can be used with the PREDICTOR creation optio
 ZSTD is available since GDAL 2.3 when using internal libtiff and if GDAL built
 against libzstd &gt;=1.0, or if built against external libtiff with zstd support.
 LERC/LERC_DEFLATE/LERC_ZSTD are available since GDAL 2.4 when using internal
-libtiff (and for LERC_ZSTD, see above mentionned conditions).
+libtiff (and for LERC_ZSTD, see above mentioned conditions).
 None is the default.</p></li>
 
 <li><p><b>NUM_THREADS=number_of_threads/ALL_CPUS</b>: (From GDAL 2.1)
